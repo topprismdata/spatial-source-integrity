@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.DS_Store
+
+# Private data, references, and run artifacts stay outside the published tree.
+raw/
+corpus/
+runs/
+refs/
+work/
+
+*.csv
+*.parquet
+*.jsonl
+*.sqlite

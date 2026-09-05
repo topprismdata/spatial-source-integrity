@@ -1,0 +1,318 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>SSI 裁决台 V3.1 — 三选一或点地图</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+body{font-family:-apple-system,'PingFang SC',sans-serif;margin:0;background:#111;color:#eee}
+#app{display:flex;height:100vh}
+#side{width:330px;overflow-y:auto;border-right:1px solid #333;padding:8px}
+#main{flex:1;padding:12px 16px;overflow-y:auto}
+.task{padding:6px 8px;margin:3px 0;background:#1c1c1c;border-radius:6px;cursor:pointer;border-left:3px solid #555}
+.task.done{border-left-color:#2e8b57;opacity:.65}.task.sel{background:#2a3b2a}
+.tag{font-size:11px;padding:1px 6px;border-radius:8px;margin-right:4px;background:#444}
+.BLIND_CONTROL{background:#20607a}.EXTREME_ANOMALY{background:#4a2060}
+.DECISION_BLOCKED{background:#7a5a20}.PRECISION_DEGRADATION{background:#20507a}
+.INVESTIGATION_REQUIRED{background:#207a40}
+#map{height:380px;border-radius:8px;margin:10px 0;cursor:crosshair}
+.optrow{display:block;margin:5px 0;padding:9px;background:#1c1c1c;border-radius:6px;cursor:pointer;border:1px solid #333}
+.optrow.dis{opacity:.45;border-style:dashed}
+.optrow.sel{border-color:#2e8b57;background:#22391f}
+select{background:#1c1c1c;color:#eee;border:1px solid #444;padding:6px;border-radius:4px;font-size:14px}
+button{border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:14px}
+#export{background:#0a5a8b;padding:10px;width:100%;margin-top:8px}
+#save{background:#2e6b2e;padding:10px 22px;margin-top:8px}
+#login{max-width:440px;margin:50px auto;background:#1c1c1c;padding:24px;border-radius:10px}
+.hidden{display:none}
+.legend{font-size:12px;color:#aaa;margin:4px 0}
+.qbox{background:#101c24;border-left:3px solid #3aa;padding:10px 14px;margin:6px 0;color:#cfe;white-space:pre-line;border-radius:0 6px 6px 0}
+#searchBox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0;position:relative}
+#sq{flex:1;min-width:200px;background:#1c1c1c;color:#eee;border:1px solid #444;padding:8px;border-radius:6px;font-size:14px}
+.sbtn{background:#0a5a8b;color:#fff;padding:8px 12px;font-size:13px}
+#sugg{position:absolute;top:38px;left:0;right:0;max-height:260px;overflow-y:auto;background:#181818;border:1px solid #333;border-radius:6px;z-index:1200;display:none}
+#sugg div{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #222}
+#sugg div:hover{background:#2a3b2a}#sugg b{color:#8fd}
+.facts{background:#1a2222;border-left:3px solid #2e8b57;padding:8px 12px;margin:8px 0;font-size:13px;border-radius:0 6px 6px 0}
+.measure{background:#241f10;border:1px solid #c9a227;padding:10px 14px;border-radius:6px;margin:8px 0;font-size:15px;color:#ffe9a8}
+.verdictline{color:#2e8b57;font-weight:bold;margin-top:4px}
+.tech{font-size:11px;color:#888;margin-top:10px}
+.step{color:#8fd;font-size:15px;margin-top:12px;display:block}
+#toast{position:fixed;bottom:18px;right:18px;background:#2e6b2e;color:#fff;padding:10px 16px;border-radius:8px;display:none}
+</style></head><body>
+<div id="login">
+ <h2>SSI 裁决台 V3.1</h2>
+ <p style="color:#aaa">你只需要回答：这个小区<b>真正在哪</b>。三选一即可；都不对才点地图。坐标、换算、结论由系统负责。</p>
+ <label>审核人（花名册，不可输入）</label><br>
+ <select id="rid" style="width:100%;margin:6px 0"></select>
+ <div id="rrole" style="color:#8f8;font-size:13px"></div><br>
+ <button id="start" style="width:100%;padding:10px;background:#0a5a8b">开始审核</button>
+</div>
+<div id="app" class="hidden">
+ <div id="side">
+  <div style="padding:4px"><b>进度</b> <span id="prog"></span><br>
+   <button id="export">导出结果 JSON</button></div>
+  <div id="list"></div>
+ </div>
+ <div id="main">
+  <h3 id="ttitle">← 选择任务</h3>
+  <div id="qbox" class="qbox hidden"></div>
+  <div id="searchBox" class="hidden">
+   <input id="sq" type="search" placeholder="🔍 输入小区名/路名/地标（小区名判别力最高；可搜数据内任意记录）" autocomplete="off">
+   <button id="sOsm" class="sbtn">OSM 查询</button>
+   <a id="sAmap" href="#" target="_blank" class="sbtn" style="text-decoration:none;display:inline-block">高德网页核对 ↗</a>
+   <div id="sugg"></div>
+  </div>
+  <div id="facts" class="facts hidden"></div>
+  <div id="map" style="display:none"></div>
+  <div class="legend" id="legend"></div>
+  <div id="measure" class="measure hidden"></div>
+  <b class="step" id="pickTitle" style="display:none">① 哪个点就是它的真实位置？（直接选）</b>
+  <div id="ropts"></div>
+  <b class="step" id="confTitle" style="display:none">② 置信度</b>
+  <span id="confWrap" class="hidden"><select id="conf"><option>HIGH</option><option selected>MEDIUM</option><option>LOW</option></select></span>
+  <button id="save">保存本单</button>
+  <span id="savedmsg" style="color:#2e8b57;margin-left:8px"></span>
+  <div class="tech" id="tech"></div>
+ </div>
+</div>
+<div id="toast"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const TASKS=__TASKS__, MANIFEST=__MANIFEST__, ROSTER=MANIFEST.roster;
+const DATA=__DATA_INDEX__;  // [id, name, district, address, lon, lat] — searchable local index (jump aid, unverified)
+const SKEY='ssi_v31_adj';
+const store=JSON.parse(localStorage.getItem(SKEY)||'{}');
+let me=null,cur=null,map=null,clickLL=null,polyRef=null,markerClick=null;
+const BASES={
+ amap:{u:'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+   sub:['1','2','3','4'],attr:'© 高德(GCJ)',name:'高德路网（含中文地名）'},
+ osm:{u:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',sub:null,attr:'© OSM(WGS84)',name:'OSM 矢量'}};
+const ORDER=['amap','osm'];
+let chosen=null;
+
+function hav(a,b){
+ const R=6371000,r=Math.PI/180;
+ const dLat=(b[1]-a[1])*r,dLon=(b[0]-a[0])*r;
+ const s=Math.sin(dLat/2)**2+Math.cos(a[1]*r)*Math.cos(b[1]*r)*Math.sin(dLon/2)**2;
+ return 2*R*Math.asin(Math.sqrt(s));
+}
+function keyFor(t){return me.reviewer_id+'|'+t;}
+
+function boot(){
+ const s=document.getElementById('rid');
+ ROSTER.forEach(r=>{const o=document.createElement('option');o.value=r.reviewer_id;
+  o.textContent=r.display+'（'+r.reviewer_id+'）· '+r.role;s.appendChild(o);});
+ s.onchange=()=>document.getElementById('rrole').textContent='角色：'+ROSTER.find(r=>r.reviewer_id===s.value).role;
+ s.onchange();
+ document.getElementById('start').onclick=()=>{
+  me=ROSTER.find(r=>r.reviewer_id===s.value);
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');renderList();};
+ document.getElementById('save').onclick=save;
+ document.getElementById('export').onclick=exportAll;
+}
+function renderList(){
+ const el=document.getElementById('list');el.innerHTML='';let done=0;
+ TASKS.forEach(t=>{const d=!!store[keyFor(t.task_id)];if(d)done++;
+  const x=document.createElement('div');
+  x.className='task'+(d?' done':'')+(cur===t.task_id?' sel':'');
+  x.innerHTML='<span class="tag '+t.category+'">'+t.category+'</span> '+(t.name||t.task_id).slice(0,14)
+   +(t.prediction_visibility==='PREDICTION_HIDDEN'?' <span class="tag">盲</span>':'');
+  x.onclick=()=>select(t.task_id);el.appendChild(x);});
+ document.getElementById('prog').textContent=done+' / '+TASKS.length;
+}
+function select(id){
+ cur=id;const t=TASKS.find(x=>x.task_id===id);
+ clickLL=null;chosen=null;
+ document.getElementById('ttitle').textContent=t.task_id+' · '+(t.name||'');
+ const qb=document.getElementById('qbox');qb.classList.remove('hidden');qb.textContent=t.question;
+ const fb=document.getElementById('facts');
+ const factsRows=[];
+ if(t.ref_parcel_name)factsRows.push(['匹配参考地块名称',
+   '<b style="color:#ff8800">'+t.ref_parcel_name+'</b>　'
+   +(t.ref_name_matches?'<span style="color:#2e8b57">✓ 与本小区名一致</span>'
+     :'<span style="color:#f66">✗ 与本小区名不一致 → 先怀疑参考配错，再怀疑坐标</span>')]);
+ if(t.facts&&t.facts.length){fb.classList.remove('hidden');
+  fb.innerHTML='<b>已核实的事实</b><ul>'+t.facts.map(x=>'<li>'+x+'</li>').join('')+'</ul>';
+  if(factsRows.length)fb.innerHTML+='<hr style="border-color:#333"><table class="ev">'+factsRows.map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('')+'</table>';
+ }
+ else if(factsRows.length){fb.classList.remove('hidden');
+  fb.innerHTML='<table class="ev">'+factsRows.map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('')+'</table>'
+   +'<div style="color:#999;font-size:12px">小区与参考地块按【名称】关联；名字对不上时先怀疑参考。</div>';
+ }
+ else{fb.classList.add('hidden');fb.innerHTML='';}
+ const mdiv=document.getElementById('map');
+ if(map){map.remove();map=null;}
+ document.getElementById('measure').classList.add('hidden');
+ const showMap=!!(t.raw||t.parcel_ring);
+ mdiv.style.display=showMap?'block':'none';
+ if(showMap){
+  const base=window.__basePick&&ORDER.includes(window.__basePick)?window.__basePick:(t.default_base||'amap');
+  map=L.map('map',{crs:L.CRS.EPSG3857});
+  L.tileLayer(BASES[base].u,{subdomains:BASES[base].sub||undefined,maxZoom:18,attribution:BASES[base].attr}).addTo(map);
+  const GCJ=(base==='amap');
+  const pick=f=>f?(GCJ?(f.gcj||f.wgs):(f.wgs||f.gcj)):null;
+  const rawP=pick({wgs:t.raw,gcj:t.raw_gcj});
+  const alP =t.prediction_visibility==='PREDICTION_HIDDEN'?null:pick({wgs:t.aligned,gcj:t.aligned_gcj});
+  const cnP =pick({wgs:t.parcel_centroid_wgs,gcj:t.parcel_centroid});
+  const ringRaw=GCJ?t.parcel_ring:t.parcel_ring_wgs||t.parcel_ring;
+  window.__disp={rawP,alP,cnP,GCJ};
+  document.getElementById('legend').innerHTML='底图：<b>'+BASES[base].name+'</b>　'
+   +'<a href="#" id="btoggle" style="color:#7cf">切换底图</a>　'
+   +'<a href="#" id="geo" style="color:#7cf">定位到参考地块</a>'
+   +'<br>●<span style="color:#4a9eff">蓝=数据原值</span>'
+   +(alP?' <span style="color:#2ecc71">绿=系统换算后</span>':'')
+   +' ▢<span style="color:#ff8800">橙框=参考地块</span>　★<span style="color:#fff">白星=你点的位置</span>';
+  if(ringRaw&&ringRaw.length){polyRef=L.polygon(ringRaw.map(p=>[p[1],p[0]]),
+    {color:'#ff8800',weight:2,fillOpacity:.12,interactive:false}).addTo(map);}
+  if(rawP)L.circleMarker([rawP[1],rawP[0]],{color:'#4a9eff',fillColor:'#4a9eff',fillOpacity:.95,radius:8,interactive:false}).addTo(map);
+  if(alP)L.circleMarker([alP[1],alP[0]],{color:'#2ecc71',fillColor:'#2ecc71',fillOpacity:.95,radius:8,interactive:false}).addTo(map);
+  if(cnP)L.circleMarker([cnP[1],cnP[0]],{color:'#ff4444',fillColor:'#ff4444',fillOpacity:.95,radius:6,interactive:false}).addTo(map);
+  const anchors=[rawP,alP,cnP].filter(Boolean);
+  if(ringRaw&&ringRaw[0])anchors.push(ringRaw[0]);
+  if(anchors.length>1)map.fitBounds(L.latLngBounds(anchors.map(p=>[p[1],p[0]])).pad(.35));
+  else if(anchors.length===1)map.setView([anchors[0][1],anchors[0][0]],16);
+  else map.setView([34.27,108.95],12);
+  if(t.click_mode)map.on('click',e=>{
+    clickLL=[e.latlng.lng,e.latlng.lat];
+    if(markerClick)map.removeLayer(markerClick);
+    markerClick=L.circleMarker(e.latlng,{color:'#fff',fillColor:'#fff',fillOpacity:1,radius:6,interactive:false}).addTo(map);
+    measure(t);});
+  document.getElementById('btoggle').onclick=ev=>{ev.preventDefault();
+    window.__basePick=ORDER[(ORDER.indexOf(base)+1)%ORDER.length];select(id);};
+  document.getElementById('geo').onclick=ev=>{ev.preventDefault();if(polyRef)map.fitBounds(polyRef.getBounds().pad(.4));};
+  setTimeout(()=>map.invalidateSize(),60);
+ }
+ renderOptions(t);
+ wireSearch(t);
+ document.getElementById('tech').textContent=t.click_mode
+  ?'技术注记：距离在底图显示坐标系内量测（高德≈GCJ）；导出含点击坐标、底图、量距，供系统推导裁决。':'';
+}
+function measure(t){
+ const d=window.__disp||{};const ms=[];
+ if(d.rawP)ms.push(['蓝点（数据原值）',Math.round(hav(clickLL,d.rawP))]);
+ if(d.alP)ms.push(['绿点（系统换算后）',Math.round(hav(clickLL,d.alP))]);
+ if(d.cnP)ms.push(['红点（参考地块中心）',Math.round(hav(clickLL,d.cnP))]);
+ const el=document.getElementById('measure');el.classList.remove('hidden');
+ el.innerHTML='📍 你点的位置到：<br>'+ms.map(x=>'　'+x[0]+'：<b>'+x[1]+' 米</b>').join('<br>')
+  +'<div class="verdictline">最近的：'+(ms.sort((a,b)=>a[1]-b[1])[0]||['—',0])[0]+' → 已为你选中「我点地图」兜底</div>';
+ // click unlocks the fallback option; three-choice always selectable
+ const cd=document.querySelector('.optrow[data-code=CLICK_DERIVED]');
+ if(cd){cd.classList.remove('dis');if(!chosen)chooseOpt(cd);}
+}
+function chooseOpt(el){
+ chosen=el.dataset.code;
+ [...el.parentNode.children].forEach(x=>x.classList.toggle('sel',x===el));
+ document.getElementById('confTitle').style.display='block';
+ document.getElementById('confWrap').classList.remove('hidden');
+}
+function renderOptions(t){
+ const ro=document.getElementById('ropts');ro.innerHTML='';
+ document.getElementById('pickTitle').style.display=t.rationale_options.length?'block':'none';
+ t.rationale_options.forEach(o=>{
+  const [code,label]=o;
+  const d=document.createElement('div');
+  d.className='optrow';d.dataset.code=code;d.textContent=label;
+  // V3.1: 三选一/手动码直接可点；仅「我点地图」兜底需先点击地图
+  if(t.click_mode&&code==='CLICK_DERIVED'){d.classList.add('dis');}
+  d.onclick=()=>{
+   if(d.classList.contains('dis')){alert('这一项需要先点地图：在小区真实位置单击一下（或直接改用上方三选一）');return;}
+   chooseOpt(d);};
+  ro.appendChild(d);});
+ const prior=store[keyFor(t.task_id)];
+ if(prior){
+  if(prior.clicked_display){clickLL=prior.clicked_display;measure(t);}
+  const el=ro.querySelector('[data-code="'+prior.rationale_code+'"]');
+  if(el)chooseOpt(el);
+  document.getElementById('conf').value=prior.confidence||'MEDIUM';
+  document.getElementById('savedmsg').textContent='已保存（'+(prior.adjudicated_at||'').slice(11,19)+'），可修改后重新保存';
+ } else document.getElementById('savedmsg').textContent='';
+}
+function save(){
+ if(!cur)return;const t=TASKS.find(x=>x.task_id===cur);
+ if(!chosen){alert('请先在第①步点选一个选项');return;}
+ if(chosen==='CLICK_DERIVED'&&!clickLL){alert('你选了「我点地图」：请先在地图上点一下真实位置；或改用三选一');return;}
+ const d=window.__disp||{};
+ const dists={};
+ if(clickLL){
+  if(d.rawP)dists['raw']=Math.round(hav(clickLL,d.rawP));
+  if(d.alP)dists['converted']=Math.round(hav(clickLL,d.alP));
+  if(d.cnP)dists['ref_parcel']=Math.round(hav(clickLL,d.cnP));
+ }
+ store[keyFor(cur)]={
+  task_id:cur,rationale_code:chosen,
+  confidence:document.getElementById('conf').value,
+  click_mode:!!t.click_mode,
+  clicked_display:clickLL?clickLL.map(x=>+x.toFixed(6)):null,
+  clicked_display_crs:clickLL?(d.GCJ?'GCJ02_display':'WGS84_display'):null,
+  measured_dists_m:clickLL?dists:null,
+  basemap:(d.GCJ?'amap':'osm'),
+  prediction_visibility:t.prediction_visibility,
+  evidence_bundle_version:'3.1.0',
+  reviewer_id:me.reviewer_id,reviewer_role:me.role,
+  adjudicated_at:new Date().toISOString()};
+ localStorage.setItem(SKEY,JSON.stringify(store));
+ const to=document.getElementById('toast');to.textContent='✓ 已保存 '+t.task_id;
+ to.style.display='block';setTimeout(()=>to.style.display='none',1400);
+ renderList();
+}
+function exportAll(){
+ const mine=Object.entries(store).filter(([k])=>k.startsWith(me.reviewer_id+'|')).map(([,v])=>v);
+ const need=MANIFEST.expected_task_count;
+ if(mine.length<need&&!confirm('仅完成 '+mine.length+'/'+need+' 单，确认导出部分结果？（报告将如实标注 N/M）'))return;
+ const payload={export_version:'3.1',batch_id:MANIFEST.batch_id,reviewer:me,
+  exported_at:new Date().toISOString(),
+  manifest_snapshot:{expected_task_count:need,expected_by_category:MANIFEST.expected_by_category},
+  adjudications:mine};
+ const a=document.createElement('a');
+ a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));
+ a.download='adjudications_v31_'+me.reviewer_id+'.json';a.click();
+}
+// ── search: suggestions from local data index + OSM geocode + Amap web ──
+let osmMarker=null, sugTimer=null;
+function esc(x){return String(x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function fillSugg(q){
+ const el=document.getElementById('sugg');
+ if(!q||q.length<1){el.style.display='none';return;}
+ const hits=DATA.filter(r=>(r[1]+' '+r[2]+' '+r[3]).toLowerCase().includes(q.toLowerCase())).slice(0,12);
+ if(!hits.length){el.style.display='none';return;}
+ el.innerHTML=hits.map((r,i)=>'<div data-i="'+i+'"><b>'+esc(r[1])+'</b>　<span style="color:#999">'+esc(r[2])+' / '+esc(r[3]||'无地址')+'</span></div>').join('');
+ el.style.display='block';
+ [...el.children].forEach((d,i)=>d.onclick=()=>{
+  const r=hits[i];el.style.display='none';
+  jumpTo([r[4],r[5]],'📌 数据里「'+r[1]+'」的坐标（仅供定位参考）');});
+}
+function jumpTo(ll,label){
+ if(!map)return;
+ map.setView([ll[1],ll[0]],16);
+ if(osmMarker)map.removeLayer(osmMarker);
+ osmMarker=L.circleMarker([ll[1],ll[0]],{color:'#c0f',fillColor:'#c0f',fillOpacity:1,radius:8,interactive:false}).addTo(map).bindTooltip(label,{permanent:false});
+}
+async function searchOsm(){
+ const q=document.getElementById('sq').value.trim();if(!q)return;
+ const url='https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=cn&q='+encodeURIComponent(q+' 西安');
+ document.getElementById('sugg').style.display='none';
+ try{
+  const rs=await (await fetch(url)).json();
+  if(!rs.length){alert('OSM 没查到这个地名。换关键词，或点「高德网页核对」。');return;}
+  const box=document.getElementById('sugg');
+  box.innerHTML=rs.map((r,i)=>'<div data-i="'+i+'"><b>'+esc(r.display_name.split(',').slice(0,2).join(', '))+'</b><br><span style="color:#999">OSM 查询结果 · 点地图移动过去</span></div>').join('');
+  box.style.display='block';
+  [...box.children].forEach((d,i)=>d.onclick=()=>{box.style.display='none';jumpTo([+rs[i].lon,+rs[i].lat],'🔎 OSM 查询：'+rs[i].display_name.split(',')[0]);});
+ }catch(e){alert('OSM 查询失败（网络/限流）。请改用「高德网页核对」。');}
+}
+function wireSearch(t){
+ const sb=document.getElementById('searchBox');
+ if(!t.click_mode){sb.classList.add('hidden');return;}
+ sb.classList.remove('hidden');
+ document.getElementById('sq').value=t.name||'';  // name is the discriminative key (matches how anchors were built)
+ document.getElementById('sugg').style.display='none';
+ const am=document.getElementById('sAmap');
+ am.href='https://ditu.amap.com/search?query='+encodeURIComponent(((t.district||'西安')+' '+t.name).trim());
+}
+(function(){const sq=document.getElementById('sq');
+ sq.oninput=()=>{clearTimeout(sugTimer);sugTimer=setTimeout(()=>fillSugg(sq.value.trim()),120);};
+ sq.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();fillSugg(sq.value.trim());}};
+ document.getElementById('sOsm').onclick=searchOsm;
+ document.addEventListener('click',e=>{if(!e.target.closest('#searchBox'))document.getElementById('sugg').style.display='none';});
+})();
+boot();
+</script></body></html>
