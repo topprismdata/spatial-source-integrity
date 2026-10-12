@@ -1,0 +1,230 @@
+# Vendored from topprismdata/geospatial-data-governance protocol/dq_verdict_protocol_v1.json (commit 37d1e7b + const fix, 2026-10-12). Source of truth lives in GeoGov; drift is caught by protocol_version assertion in tests/test_protocol_adapter.py.
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zcode.local/protocol/dq_verdict_protocol_v1.json",
+  "title": "TopPrism DQ Verdict Protocol v1",
+  "description": "模块①数据管理统一裁决协议。对齐 spatial-source-integrity (SSI) GateDecision 的 4 态准入动作与 5 态治理处置；GeoGov batch_verdict、spatial_ca 五门状态机、SRAF validate_region_pack、mousheng 置信降级统一映射到本协议词汇表。规则/证据/工单三 ID 命名空间经 prism-ontology MS-PROP-023 提案发布。",
+  "protocol_version": "1.0.1",
+  "authored": "2026-10-12",
+  "$ref": "#/$defs/GateDecision",
+  "authority": {
+    "base_vocabulary": "spatial-source-integrity ssi/contracts/runtime/gate_decision.py (AdmissionAction, GovernanceDisposition)",
+    "id_namespace": "prism-ontology MS-PROP-023 (proposed)",
+    "rule_registry": "rules/dq_rules_v1_frozen.json (V1-FROZEN, 2026-09-17)"
+  },
+  "$defs": {
+    "AdmissionAction": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "ALLOW_WITH_LIMITS",
+        "REVIEW",
+        "BLOCK"
+      ],
+      "description": "统一准入动作，对齐 SSI AdmissionAction。SSI 原名 BLOCK_FOR_PROFILE 映射为 BLOCK，profile 范围记录于 scope 字段。"
+    },
+    "GovernanceDisposition": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "QUARANTINE",
+        "SUSPEND_SOURCE",
+        "REPAIR_REQUIRED",
+        "INVESTIGATION_REQUIRED"
+      ],
+      "description": "统一治理处置，对齐 SSI GovernanceDisposition。SSI 原名 QUARANTINE_SCOPE 映射为 QUARANTINE，范围记录于 scope 字段。处置作用于数据源/批次，绝不静默改写原始记录。"
+    },
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "C0",
+        "C1",
+        "C2",
+        "C3",
+        "UNSPECIFIED"
+      ],
+      "description": "GeoGov 错漏分级（GB/T 18316/24356 参照）。C0 致命 / C1 关键(Hard Gate) / C2 主要 / C3 一般。 UNSPECIFIED: 评估方注册表未定义 C 分级时显式声明(如 SSI 必评项)，禁用静默缺省。"
+    },
+    "RuleID": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*@[a-z][a-z0-9-]*-v[0-9]+([.][0-9]+)*$",
+      "description": "规则实例标识，泛化格式 <REGISTRY>-<CODE>@<registry-slug>-v<version>。示例: DQ-R018@dq-rules-v1 (GeoGov 冻结规则), SSI-REQ-RESIDUAL@ssi-gate-v0.1 (SSI 必评项)。各注册表语义由其冻结版本文件定义。"
+    },
+    "EvidenceID": {
+      "type": "string",
+      "pattern": "^EV-[0-9]{4}-[0-9]{6}-[A-Z0-9]{8}$",
+      "description": "证据条目标识。格式 EV-<year>-<seq>-<contenthash8>。contenthash8 为证据载荷 SHA-256 前 8 位大写十六进制，保证证据可寻址。"
+    },
+    "IssueID": {
+      "type": "string",
+      "pattern": "^ISSUE-[0-9]{4}-[0-9]{6}$",
+      "description": "异常工单标识。格式 ISSUE-<year>-<seq>。工单生命周期状态机由 WP08 统一异常工作台定义，本协议只约束标识。"
+    },
+    "RuleEvaluation": {
+      "type": "object",
+      "required": [
+        "rule_id",
+        "verdict",
+        "severity"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/RuleID"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "hard_gate": {
+          "type": "boolean"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceID"
+          }
+        },
+        "measured": {
+          "description": "规则测量值/命中明细，结构由规则实现层定义"
+        },
+        "evaluated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "GateDecision": {
+      "type": "object",
+      "required": [
+        "action",
+        "disposition",
+        "evaluations",
+        "decided_at"
+      ],
+      "properties": {
+        "protocol_version": {
+          "const": "1.0.1"
+        },
+        "action": {
+          "$ref": "#/$defs/AdmissionAction"
+        },
+        "disposition": {
+          "$ref": "#/$defs/GovernanceDisposition"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "profile": {
+              "type": "string",
+              "description": "适用 profile，如 cn-retail-wuhu"
+            },
+            "source": {
+              "type": "string",
+              "description": "数据源/批次标识"
+            },
+            "usage_limits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "ALLOW_WITH_LIMITS 时的使用限制清单"
+            }
+          }
+        },
+        "evaluations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuleEvaluation"
+          }
+        },
+        "hard_gates_all_pass": {
+          "type": "boolean"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "decided_by": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "immutable": {
+          "const": true,
+          "description": "GateDecision 签发后不可变；修正以新决策+SUPERSEDED 引用表达"
+        },
+        "supersedes": {
+          "type": "string",
+          "description": "被取代的前序决策标识"
+        }
+      }
+    }
+  },
+  "vocabulary_alignment": {
+    "description": "各仓现有裁决词汇 → 本协议统一词汇。各仓本地枚举保留，对外交换时使用本协议。",
+    "spatial_source_integrity": {
+      "status": "baseline",
+      "AdmissionAction": {
+        "ALLOW": "ALLOW",
+        "ALLOW_WITH_LIMITS": "ALLOW_WITH_LIMITS",
+        "REVIEW": "REVIEW",
+        "BLOCK_FOR_PROFILE": "BLOCK"
+      },
+      "GovernanceDisposition": {
+        "NONE": "NONE",
+        "QUARANTINE_SCOPE": "QUARANTINE",
+        "SUSPEND_SOURCE": "SUSPEND_SOURCE",
+        "REPAIR_REQUIRED": "REPAIR_REQUIRED",
+        "INVESTIGATION_REQUIRED": "INVESTIGATION_REQUIRED"
+      }
+    },
+    "geospatial_data_governance": {
+      "status": "mapped",
+      "batch_verdict": {
+        "PASS": "ALLOW",
+        "有条件合格": "ALLOW_WITH_LIMITS",
+        "不合格": "BLOCK"
+      },
+      "note": "batch_verdict 三态文本定义见 rules/dq_rules_v1_frozen.json；规则级 PASS/FAIL 映射 RuleEvaluation.verdict"
+    },
+    "spatial_ca_benchmark": {
+      "status": "mapped",
+      "gate": {
+        "PASSED": "ALLOW",
+        "PASSED_WITH_INVALID_ROWS_DROPPED": "ALLOW_WITH_LIMITS",
+        "INCLUDING_CONFIRMED_OUTLIER": "ALLOW_WITH_LIMITS",
+        "BLOCKED_BY_DATA_QUALITY": "BLOCK",
+        "STRUCTURE_ONLY": "ALLOW_WITH_LIMITS"
+      },
+      "note": "STRUCTURE_ONLY 限制=禁止绝对 km 结论；INCLUDING_CONFIRMED_OUTLIER 限制=带已确认离群点声明"
+    },
+    "sales_resource_allocation_framework": {
+      "status": "mapped",
+      "validate_region_pack": "逐项快速失败；任一必填/枚举/坐标可解析失败 → BLOCK（含失败原因清单），全过 → 允许进入后续体检（非最终 ALLOW）"
+    },
+    "mousheng_outlet_insight": {
+      "status": "mapped",
+      "confidence_tier": {
+        "High": "ALLOW",
+        "Medium": "ALLOW_WITH_LIMITS",
+        "Low": "ALLOW_WITH_LIMITS"
+      },
+      "note": "覆盖率<20% 强制降级 Low 对应 ALLOW_WITH_LIMITS(附限制：不得用于配额圈选等强结论)"
+    }
+  },
+  "invariants": [
+    "fail-closed: 缺失必评证据 = BLOCK，不猜测",
+    "Hard Gate 任一 C1 失败 = BLOCK，覆盖任何 ALLOW 语义",
+    "BLOCK 永不发布；REVIEW 永不进生产",
+    "原始坐标/CRS/地址不被推断结果静默覆盖",
+    "决策不可变；修正以新决策 + supersedes 表达"
+  ]
+}
